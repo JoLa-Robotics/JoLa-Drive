@@ -1,27 +1,22 @@
 /** 
- * B-G431B-ESC1 position motion control example with encoder
+ * B-G431B-ESC1 velocity motion control example with an AS5600 I2C sensor
  * Retrieved from Simple FOC Examples 
- * https://github.com/simplefoc/Arduino-FOC/blob/master/examples/hardware_specific_examples/B_G431B_ESC1/B_G431B_ESC1.ino
+ * https://docs.simplefoc.com/magnetic_sensor_i2c
  *
  */
 #include <SimpleFOC.h>
 #include <Arduino.h>
+#include <Wire.h>
 
 // Motor instance
-BLDCMotor motor = BLDCMotor(11);
+BLDCMotor motor = BLDCMotor(7);
 BLDCDriver6PWM driver = BLDCDriver6PWM(A_PHASE_UH, A_PHASE_UL, A_PHASE_VH, A_PHASE_VL, A_PHASE_WH, A_PHASE_WL);
 // Gain calculation shown at https://community.simplefoc.com/t/b-g431b-esc1-current-control/521/21
 LowsideCurrentSense currentSense = LowsideCurrentSense(0.003f, -64.0f/7.0f, A_OP1_OUT, A_OP2_OUT, A_OP3_OUT);
 
 
-// encoder instance
-Encoder encoder = Encoder(A_HALL2, A_HALL3, 2048, A_HALL1);
-
-// Interrupt routine intialisation
-// channel A and B callbacks
-void doA(){encoder.handleA();}
-void doB(){encoder.handleB();}
-void doIndex(){encoder.handleIndex();}
+// AS5600 12-bit magnetic sensor at I2C address 0x36
+MagneticSensorI2C sensor = MagneticSensorI2C(AS5600_I2C);
 
 // instantiate the commander
 Commander command = Commander(Serial);
@@ -35,12 +30,17 @@ void setup() {
   // comment out if not needed
   SimpleFOCDebug::enable(&Serial);
 
-  // initialize encoder sensor hardware
-  encoder.init();
-  encoder.enableInterrupts(doA, doB); 
+  // The B-G431B-ESC1 Arduino variant maps I2C1 to PB7 (SDA) and PB8 (SCL).
+  Wire.setSDA(PB7);
+  Wire.setSCL(PB8);
+  Wire.setClock(400000);
+  Wire.begin();
+
+  // initialize the AS5600 sensor hardware
+  sensor.init(&Wire);
 
   // link the motor to the sensor
-  motor.linkSensor(&encoder);
+  motor.linkSensor(&sensor);
   
   // driver config
   // power supply voltage [V]
@@ -69,8 +69,8 @@ void setup() {
   // default parameters in defaults.h
 
   // velocity PI controller parameters
-  motor.PID_velocity.P = 0.2;
-  motor.PID_velocity.I = 20;
+  motor.PID_velocity.P = 0.5;
+  motor.PID_velocity.I = 0;
   // default voltage_power_supply
   motor.voltage_limit = 6;
   // jerk control using voltage voltage ramp
@@ -80,9 +80,7 @@ void setup() {
   // velocity low pass filtering time constant
   motor.LPF_velocity.Tf = 0.01;
 
-  // angle P controller
-  motor.P_angle.P = 20;
-  //  maximal velocity of the position control
+  // maximal velocity command
   motor.velocity_limit = 4;
 
   // comment out if not needed
@@ -94,10 +92,10 @@ void setup() {
   motor.initFOC();
 
   // add target command T
-  command.add('T', doTarget, "target angle");
+  command.add('T', doTarget, "target velocity");
 
   Serial.println(F("Motor ready."));
-  Serial.println(F("Set the target angle using serial terminal:"));
+  Serial.println(F("Set the target velocity in rad/s using serial terminal:"));
   _delay(1000);
 }
 
